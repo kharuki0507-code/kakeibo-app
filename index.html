@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#4f7cff">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="積立管理">
+  <title>家計積立管理アプリ</title>
+  <link rel="stylesheet" href="style.css?v=3">
+  <link rel="manifest" href="manifest.json">
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
+</head>
+<body>
+
+  <!-- ============================================================
+       アカウント選択オーバーレイ（起動時・切り替え時に表示）
+       ============================================================ -->
+  <div id="account-picker-overlay">
+    <div class="account-picker">
+      <div style="font-size:52px; margin-bottom:10px;">💰</div>
+      <h1>積立管理</h1>
+      <p class="ap-sub">アカウントを選んで始めよう</p>
+
+      <!-- 既存アカウント一覧 -->
+      <div id="account-cards"></div>
+
+      <hr class="account-picker-divider">
+
+      <!-- 新規作成ボタン -->
+      <div id="new-account-area">
+        <button class="btn btn-full" style="background:rgba(255,255,255,0.2); color:#fff; border:2px dashed rgba(255,255,255,0.5); min-height:52px;" onclick="showNewAccountForm()">
+          ＋ 新しいアカウントを作成
+        </button>
+      </div>
+
+      <!-- 新規作成フォーム（初期非表示） -->
+      <div id="new-account-form" style="display:none;">
+        <input type="text" id="new-account-name" class="form-input" placeholder="名前を入力（例：ハルキ）" style="margin-bottom:10px; font-size:16px;" maxlength="20">
+        <div style="display:flex; gap:8px;">
+          <button class="btn btn-secondary" style="flex:1;" onclick="cancelNewAccount()">キャンセル</button>
+          <button class="btn btn-full" style="flex:2; background:#fff; color:var(--primary); font-weight:700;" onclick="createAccount()">作成する</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       お祝いアニメーションオーバーレイ（全ページ共通）
+       ============================================================ -->
+  <div id="celebration-overlay" aria-live="polite" aria-label="達成お祝い">
+    <canvas id="confetti-canvas"></canvas>
+    <!-- 応援キャラ画像 -->
+    <img id="cel-chara-img" class="cel-chara" src="" alt="応援キャラ" style="display:none;">
+    <!-- キャラなし時のデフォルト絵文字 -->
+    <div id="cel-chara-emoji" class="cel-chara" style="font-size:80px; background:none; border:none; box-shadow:none; width:auto; height:auto; display:none;">🐾</div>
+    <!-- 吹き出し -->
+    <div id="cel-bubble" class="cel-bubble"></div>
+    <!-- 閉じるボタン -->
+    <button class="cel-close" onclick="closeCelebration()">閉じる ✕</button>
+  </div>
+
+  <!-- スナックバー（トースト通知） -->
+  <div id="snackbar"></div>
+
+  <!-- ============================================================
+       ページ1: ダッシュボード（ホーム）
+       ============================================================ -->
+  <section id="page-home" class="page active">
+    <div class="page-header">
+      <h1>💰 積立ダッシュボード</h1>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-top:4px;">
+        <div class="subtitle month-nav">
+          <button class="month-nav-btn" onclick="prevMonth()">‹</button>
+          <span id="header-month">2024年1月</span>
+          <button class="month-nav-btn" onclick="nextMonth()">›</button>
+        </div>
+        <span class="account-badge" onclick="showAccountPicker()">
+          👤 <span id="current-account-name">-</span>
+        </span>
+      </div>
+    </div>
+
+    <!-- 月収入入力 -->
+    <div class="income-section" style="margin-top: 20px;">
+      <label for="income-input" id="income-label">📥 今月の手取り収入</label>
+      <div class="income-input-row">
+        <input type="number" id="income-input" placeholder="200000" inputmode="numeric">
+        <button class="btn btn-primary" onclick="saveIncome()" style="white-space:nowrap;">保存</button>
+      </div>
+      <!-- 賞与・臨時収入・その他の収入 -->
+      <div style="margin-top: 10px; border-top: 1px solid rgba(255,255,255,0.3); padding-top: 10px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+          <label style="font-size:12px; opacity:0.9;">🎉 賞与・臨時収入・その他の収入</label>
+          <div style="display:flex; align-items:center; gap:10px;">
+            <button onclick="resetBonus()" style="font-size:11px; opacity:0.65; background:none; border:none; color:#fff; cursor:pointer; text-decoration:underline; padding:0; line-height:1;">リセット</button>
+            <span style="font-size:13px; font-weight:700;" id="current-bonus-display">¥0</span>
+          </div>
+        </div>
+        <div class="income-input-row">
+          <input type="number" id="bonus-input" placeholder="例：50000" inputmode="numeric" style="font-size:15px;">
+          <button class="btn btn-primary" onclick="addBonus()" style="white-space:nowrap; background:rgba(255,255,255,0.3);">追加</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- サマリーカード（6枚） -->
+    <div class="dashboard-summary">
+      <div class="summary-card">
+        <div class="label">💼 収入合計</div>
+        <div class="value" id="sum-income">¥0</div>
+      </div>
+      <div class="summary-card">
+        <div class="label">💸 月々積立額</div>
+        <div class="value warning" id="sum-saving">¥0</div>
+      </div>
+      <div class="summary-card">
+        <div class="label">🏠 残り自由費</div>
+        <div class="value success" id="sum-free">¥0</div>
+      </div>
+      <div class="summary-card">
+        <div class="label">📈 積立率</div>
+        <div class="value" id="sum-savings-rate">0%</div>
+      </div>
+      <div class="summary-card">
+        <div class="label">📊 平均達成率</div>
+        <div class="value" id="sum-rate">0%</div>
+      </div>
+      <div class="summary-card">
+        <div class="label">💎 積立総資産</div>
+        <div class="value" id="sum-total-assets">¥0</div>
+      </div>
+    </div>
+
+    <!-- 積立項目一覧 -->
+    <div class="section-header">
+      <span class="section-title">📋 積立項目</span>
+      <div style="display:flex; gap:8px;">
+        <button class="btn btn-success" onclick="applyAllFixed()" style="min-height:36px; padding:8px 12px; font-size:12px;" title="定額設定済みの項目をまとめて積立">
+          ⚡ 一括積立
+        </button>
+        <button class="btn btn-primary" onclick="openAddItemModal()" style="min-height:36px; padding:8px 14px; font-size:13px;">
+          ＋ 追加
+        </button>
+      </div>
+    </div>
+
+    <div class="item-list" id="item-list">
+      <!-- JavaScriptで動的生成 -->
+      <div class="empty-state" id="empty-state">
+        <div class="empty-icon">📦</div>
+        <p>積立項目がまだありません<br>＋ 追加ボタンで作成しましょう</p>
+      </div>
+    </div>
+
+    <!-- 急な出費ボタン -->
+    <div style="padding: 0 16px; margin-top: 8px;">
+      <button class="btn btn-warning btn-full" onclick="openRedistribModal()">
+        ⚡ 急な出費が発生した！再配分提案
+      </button>
+    </div>
+
+    <!-- 急な出費履歴 -->
+    <div class="section-header" style="margin-top: 16px;">
+      <span class="section-title">⚡ 急な出費履歴</span>
+    </div>
+    <div id="emergency-history-list" style="padding: 0 16px 8px;">
+      <!-- JavaScriptで動的生成 -->
+    </div>
+  </section>
+
+  <!-- ============================================================
+       ページ2: グラフ（視覚化）
+       ============================================================ -->
+  <section id="page-graph" class="page">
+    <div class="page-header">
+      <h1>📈 グラフで確認</h1>
+      <p class="subtitle">積立の推移を可視化</p>
+    </div>
+
+    <!-- タブ切り替え -->
+    <div class="tab-bar" style="margin-top: 20px;">
+      <button class="tab-btn active" onclick="switchGraphTab('line', this)">折れ線</button>
+      <button class="tab-btn" onclick="switchGraphTab('pie', this)">円グラフ</button>
+      <button class="tab-btn" onclick="switchGraphTab('bar', this)">達成率</button>
+    </div>
+
+    <!-- 折れ線グラフ（月ごとの積立推移） -->
+    <div class="card" id="graph-line">
+      <div class="card-title">月ごとの積立推移</div>
+      <div class="chart-container">
+        <canvas id="chart-line"></canvas>
+      </div>
+    </div>
+
+    <!-- 円グラフ（項目別割合） -->
+    <div class="card" id="graph-pie" style="display:none;">
+      <div class="card-title">項目別積立割合</div>
+      <div class="chart-container">
+        <canvas id="chart-pie"></canvas>
+      </div>
+    </div>
+
+    <!-- 棒グラフ（達成率推移） -->
+    <div class="card" id="graph-bar" style="display:none;">
+      <div class="card-title">項目別達成率</div>
+      <div class="chart-container">
+        <canvas id="chart-bar"></canvas>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       ページ3: ご褒美
+       ============================================================ -->
+  <section id="page-reward" class="page">
+    <div class="page-header">
+      <h1>🎁 ご褒美</h1>
+      <p class="subtitle">目標達成でアンロック！</p>
+    </div>
+
+    <div style="padding: 16px 16px 8px;">
+      <button class="btn btn-secondary btn-full" onclick="openAddRewardModal()">
+        ＋ ご褒美を追加
+      </button>
+    </div>
+
+    <div class="reward-grid" id="reward-list">
+      <!-- JavaScriptで動的生成 -->
+    </div>
+
+    <div class="empty-state" id="reward-empty" style="display:none;">
+      <div class="empty-icon">🎁</div>
+      <p>ご褒美がまだありません<br>追加してモチベーションアップ！</p>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       ページ4: 設定（応援キャラ・データ管理）
+       ============================================================ -->
+  <section id="page-settings" class="page">
+    <div class="page-header">
+      <h1>⚙️ 設定</h1>
+      <p class="subtitle">アプリのカスタマイズ</p>
+    </div>
+
+    <!-- 応援キャラ設定 -->
+    <div class="card" style="margin-top: 20px;">
+      <div class="card-title">🐾 応援キャラ設定</div>
+      <p style="font-size:12px; color:#7f8c9a; margin-bottom:16px;">
+        ※ 著作権保護のため、画像はご自身の端末から選んでください。<br>
+        アプリには画像を保持せず、ローカルストレージに保存されます。
+      </p>
+      <div class="chara-section">
+        <!-- 画像プレビュー -->
+        <img id="chara-preview" class="chara-avatar" src="" alt="応援キャラ" style="display:none;">
+        <div id="chara-placeholder" class="chara-placeholder" onclick="document.getElementById('chara-upload').click()">
+          📷
+        </div>
+        <p style="font-size:13px; color:#7f8c9a; margin-bottom:16px;">タップして画像を選択</p>
+        <!-- 非表示のファイル入力 -->
+        <input type="file" id="chara-upload" accept="image/*" style="display:none;" onchange="uploadCharaImage(event)">
+        <div style="display:flex; gap:8px; justify-content:center;">
+          <button class="btn btn-primary" onclick="document.getElementById('chara-upload').click()" style="font-size:13px; min-height:40px; padding:8px 16px;">
+            📷 画像を選択
+          </button>
+          <button class="btn btn-danger" onclick="removeCharaImage()" style="font-size:13px; min-height:40px; padding:8px 16px;">
+            🗑️ 削除
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- アカウント管理 -->
+    <div class="settings-list" style="margin-top: 4px;">
+      <div class="settings-item">
+        <div class="settings-icon">👤</div>
+        <div class="settings-info">
+          <div class="settings-label">アカウント切り替え</div>
+          <div class="settings-desc" id="settings-account-name">-</div>
+        </div>
+        <button class="btn btn-primary" onclick="showAccountPicker()" style="min-height:36px; padding:8px 14px; font-size:13px;">切替</button>
+      </div>
+    </div>
+
+    <!-- データ管理 -->
+    <div class="settings-list" style="margin-top: 4px;">
+      <div class="settings-item">
+        <div class="settings-icon">📤</div>
+        <div class="settings-info">
+          <div class="settings-label">データをエクスポート</div>
+          <div class="settings-desc">JSONファイルとしてバックアップ</div>
+        </div>
+        <button class="btn btn-secondary" onclick="exportData()" style="min-height:36px; padding:8px 14px; font-size:13px;">保存</button>
+      </div>
+
+      <div class="settings-item">
+        <div class="settings-icon">📥</div>
+        <div class="settings-info">
+          <div class="settings-label">データをインポート</div>
+          <div class="settings-desc">バックアップから復元</div>
+        </div>
+        <button class="btn btn-secondary" onclick="document.getElementById('import-file').click()" style="min-height:36px; padding:8px 14px; font-size:13px;">読込</button>
+        <input type="file" id="import-file" accept=".json" style="display:none;" onchange="importData(event)">
+      </div>
+
+      <div class="settings-item">
+        <div class="settings-icon">🗑️</div>
+        <div class="settings-info">
+          <div class="settings-label">全データを削除</div>
+          <div class="settings-desc">初期化（元に戻せません）</div>
+        </div>
+        <button class="btn btn-danger" onclick="confirmResetData()" style="min-height:36px; padding:8px 14px; font-size:13px;">削除</button>
+      </div>
+    </div>
+
+    <!-- アプリ情報 -->
+    <div class="card">
+      <div class="card-title">ℹ️ アプリ情報</div>
+      <p style="font-size:13px; color:#7f8c9a; line-height:1.7;">
+        家計積立管理アプリ v1.0<br>
+        オフライン対応（PWA）<br>
+        データはこの端末のみに保存されます。<br>
+        クラウド同期は行いません。
+      </p>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       ボトムナビゲーション
+       ============================================================ -->
+  <nav class="bottom-nav">
+    <button class="nav-btn active" onclick="showPage('home', this)">
+      <span class="icon">🏠</span>
+      <span>ホーム</span>
+    </button>
+    <button class="nav-btn" onclick="showPage('graph', this)">
+      <span class="icon">📊</span>
+      <span>グラフ</span>
+    </button>
+    <button class="nav-btn" onclick="showPage('reward', this)">
+      <span class="icon">🎁</span>
+      <span>ご褒美</span>
+    </button>
+    <button class="nav-btn" onclick="showPage('settings', this)">
+      <span class="icon">⚙️</span>
+      <span>設定</span>
+    </button>
+  </nav>
+
+  <!-- ============================================================
+       モーダル: 積立項目追加・編集
+       ============================================================ -->
+  <div id="modal-item" class="modal-overlay" onclick="closeModalOnOverlay(event, 'modal-item')">
+    <div class="modal">
+      <div class="modal-handle"></div>
+      <h2 class="modal-title" id="modal-item-title">積立項目を追加</h2>
+
+      <div class="form-group">
+        <label class="form-label" for="item-name">項目名 *</label>
+        <input type="text" id="item-name" class="form-input" placeholder="例：車検積立">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="item-goal">目標額（円）*</label>
+        <input type="number" id="item-goal" class="form-input" placeholder="例：100000" inputmode="numeric">
+      </div>
+      <div class="form-group" id="deadline-form-group">
+        <label class="form-label" for="item-deadline" id="deadline-label">必要になる月 *</label>
+        <input type="month" id="item-deadline" class="form-input">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="item-priority">優先度</label>
+        <select id="item-priority" class="form-select">
+          <option value="high">🔴 高（急ぎ）</option>
+          <option value="mid" selected>🟡 中（通常）</option>
+          <option value="low">🟢 低（余裕あり）</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="item-current">現在の積立額（円）</label>
+        <input type="number" id="item-current" class="form-input" placeholder="例：10000" inputmode="numeric">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="item-fixed">毎月の定額積立（円）<span style="font-weight:400; color:#aaa;">※食費・日用品など固定の場合</span></label>
+        <input type="number" id="item-fixed" class="form-input" placeholder="例：30000（未設定なら空欄）" inputmode="numeric" oninput="toggleDeadlineRequired()">
+      </div>
+
+      <div style="display:flex; gap:10px; margin-top:8px;">
+        <button class="btn btn-secondary" style="flex:1;" onclick="closeModal('modal-item')">キャンセル</button>
+        <button class="btn btn-primary" style="flex:2;" onclick="saveItem()">💾 保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       モーダル: 積立項目詳細・更新
+       ============================================================ -->
+  <div id="modal-detail" class="modal-overlay" onclick="closeModalOnOverlay(event, 'modal-detail')">
+    <div class="modal">
+      <div class="modal-handle"></div>
+      <h2 class="modal-title" id="detail-title">項目詳細</h2>
+
+      <!-- 現在の状況 -->
+      <div style="background: var(--bg); border-radius: 12px; padding: 16px; margin-bottom: 16px;">
+        <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+          <span style="font-size:13px; color:#7f8c9a;">現在の積立額</span>
+          <span id="detail-current" style="font-size:18px; font-weight:700;">¥0</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+          <span style="font-size:13px; color:#7f8c9a;">目標額</span>
+          <span id="detail-goal" style="font-size:14px; font-weight:600;">¥0</span>
+        </div>
+        <div class="progress-bar" style="margin-bottom:4px;">
+          <div id="detail-progress-fill" class="progress-fill" style="width:0%"></div>
+        </div>
+        <div style="display:flex; justify-content:space-between; font-size:12px; color:#7f8c9a;">
+          <span id="detail-rate">0%達成</span>
+          <span id="detail-remain">残り ¥0</span>
+        </div>
+      </div>
+
+      <!-- 月々の積立額を入力して追加 -->
+      <div class="form-group">
+        <label class="form-label">📅 積立を追加（円）</label>
+        <div style="display:flex; gap:8px;">
+          <input type="number" id="detail-add-amount" class="form-input" placeholder="例：5000" inputmode="numeric" style="flex:1;">
+          <button class="btn btn-success" onclick="addMonthlyAmount()" style="white-space:nowrap; min-height:48px; padding:12px 16px;">＋追加</button>
+        </div>
+      </div>
+
+      <!-- 積立から使用する（出費・引き落とし） -->
+      <div class="form-group" style="border-top:1px solid var(--border); padding-top:14px;">
+        <label class="form-label">💸 積立を使用する（出費・引き落とし）</label>
+        <input type="text" id="detail-use-reason" class="form-input" placeholder="理由（例：車検支払い、食費）" style="margin-bottom:8px;">
+        <div style="display:flex; gap:8px;">
+          <input type="number" id="detail-use-amount" class="form-input" placeholder="使用額（円）" inputmode="numeric" style="flex:1;">
+          <button class="btn btn-danger" onclick="useAmount()" style="white-space:nowrap; min-height:48px; padding:12px 14px;">－使用</button>
+        </div>
+      </div>
+
+      <!-- 月ごとの積立履歴 -->
+      <div class="card-title">📆 積立履歴</div>
+      <div style="max-height: 180px; overflow-y: auto;">
+        <table class="history-table">
+          <thead>
+            <tr>
+              <th>年月</th>
+              <th>金額</th>
+            </tr>
+          </thead>
+          <tbody id="detail-history"></tbody>
+        </table>
+      </div>
+
+      <div style="display:flex; gap:10px; margin-top:16px;">
+        <button class="btn btn-secondary" style="flex:1;" onclick="closeModal('modal-detail')">閉じる</button>
+        <button class="btn btn-primary" style="flex:1;" onclick="editCurrentItem()">✏️ 編集</button>
+        <button class="btn btn-danger" style="flex:1;" onclick="deleteCurrentItem()">🗑️ 削除</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       モーダル: ご褒美追加
+       ============================================================ -->
+  <div id="modal-reward" class="modal-overlay" onclick="closeModalOnOverlay(event, 'modal-reward')">
+    <div class="modal">
+      <div class="modal-handle"></div>
+      <h2 class="modal-title">ご褒美を追加</h2>
+
+      <div class="form-group">
+        <label class="form-label" for="reward-name">ご褒美名 *</label>
+        <input type="text" id="reward-name" class="form-input" placeholder="例：ケーキを食べる">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="reward-icon">アイコン（絵文字）</label>
+        <input type="text" id="reward-icon" class="form-input" placeholder="例：🎂" maxlength="2">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="reward-rate">必要達成率（%）*</label>
+        <input type="number" id="reward-rate" class="form-input" placeholder="例：80" min="1" max="100" inputmode="numeric">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="reward-category">カテゴリ</label>
+        <select id="reward-category" class="form-select">
+          <option value="food">🍰 食べ物</option>
+          <option value="beauty">💄 美容</option>
+          <option value="travel">✈️ 旅行</option>
+          <option value="hobby">🎮 趣味</option>
+          <option value="other">🎁 その他</option>
+        </select>
+      </div>
+
+      <div style="display:flex; gap:10px; margin-top:8px;">
+        <button class="btn btn-secondary" style="flex:1;" onclick="closeModal('modal-reward')">キャンセル</button>
+        <button class="btn btn-primary" style="flex:2;" onclick="saveReward()">💾 保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       モーダル: 急な出費・再配分提案
+       ============================================================ -->
+  <div id="modal-redistrib" class="modal-overlay" onclick="closeModalOnOverlay(event, 'modal-redistrib')">
+    <div class="modal">
+      <div class="modal-handle"></div>
+      <h2 class="modal-title">⚡ 急な出費・再配分提案</h2>
+
+      <div class="form-group">
+        <label class="form-label" for="emergency-amount">急な出費の金額（円）*</label>
+        <input type="number" id="emergency-amount" class="form-input" placeholder="例：30000" inputmode="numeric">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="emergency-reason">理由（任意）</label>
+        <input type="text" id="emergency-reason" class="form-input" placeholder="例：急病の医療費">
+      </div>
+
+      <button class="btn btn-warning btn-full" onclick="calculateRedistrib()">
+        🧮 最適な再配分を計算する
+      </button>
+
+      <!-- 計算結果 -->
+      <div id="redistrib-result" style="display:none; margin-top:16px;">
+        <div class="card-title" style="margin-bottom:8px;">📋 再配分提案</div>
+        <div id="redistrib-items"></div>
+        <div style="background:#fff8e1; border-radius:12px; padding:12px; margin-top:12px; font-size:13px; color:#7f8c9a;" id="redistrib-note"></div>
+        <button class="btn btn-success btn-full" style="margin-top:12px;" onclick="applyRedistrib()">
+          ✅ この提案を適用する
+        </button>
+      </div>
+
+      <button class="btn btn-secondary btn-full" style="margin-top:10px;" onclick="closeModal('modal-redistrib')">
+        キャンセル
+      </button>
+    </div>
+  </div>
+
+  <!-- メインJavaScript -->
+  <script src="main.js?v=3"></script>
+</body>
+</html>
