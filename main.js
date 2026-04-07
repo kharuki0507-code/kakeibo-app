@@ -236,8 +236,9 @@ function monthsUntilDeadline(deadlineStr) {
   return Math.max(0, months);
 }
 
-/** 月々の推奨積立額を計算（残額 ÷ 残り月数）*/
+/** 月々の推奨積立額を計算（定額設定があればそれを優先、なければ残額÷残り月数）*/
 function calcMonthlyAmount(item) {
+  if (item.fixed > 0) return item.fixed;
   const remain = Math.max(0, item.goal - item.current);
   const months = monthsUntilDeadline(item.deadline);
   if (months <= 0) return remain;
@@ -612,20 +613,71 @@ function renderHistory(item) {
   const tbody = document.getElementById('detail-history');
   tbody.innerHTML = '';
   if (!item.history || item.history.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="2" style="text-align:center; color:#7f8c9a;">履歴なし</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; color:#7f8c9a;">履歴なし</td></tr>';
     return;
   }
   // 新しい順に表示
-  [...item.history].reverse().forEach(h => {
+  [...item.history].reverse().forEach((h, reversedIdx) => {
+    const originalIdx = item.history.length - 1 - reversedIdx;
     const tr = document.createElement('tr');
+    tr.id = `hist-row-${originalIdx}`;
     const isNegative = h.amount < 0;
     const label = h.note ? ` <span style="font-size:10px;">${escapeHtml(h.note)}</span>` : '';
     const amountHtml = isNegative
       ? `<span style="color:#e74c3c; font-weight:700;">-${formatYen(Math.abs(h.amount))}${label}</span>`
       : `<span style="font-weight:600; color:#2ecc71;">+${formatYen(h.amount)}</span>`;
-    tr.innerHTML = `<td>${h.month}</td><td>${amountHtml}</td>`;
+    tr.innerHTML = `
+      <td>${h.month}</td>
+      <td id="hist-amount-${originalIdx}">${amountHtml}</td>
+      <td style="white-space:nowrap; text-align:right;">
+        <button onclick="startEditHistory('${item.id}',${originalIdx})" style="font-size:11px;padding:2px 7px;background:#4f7cff;color:#fff;border:none;border-radius:4px;cursor:pointer;margin-right:3px;">✏️</button>
+        <button onclick="deleteHistoryEntry('${item.id}',${originalIdx})" style="font-size:11px;padding:2px 7px;background:#e74c3c;color:#fff;border:none;border-radius:4px;cursor:pointer;">🗑️</button>
+      </td>`;
     tbody.appendChild(tr);
   });
+}
+
+/** 履歴の編集モードを開始（行をインライン入力に切り替え） */
+function startEditHistory(itemId, histIdx) {
+  const item = appState.items.find(i => i.id === itemId);
+  if (!item) return;
+  const h = item.history[histIdx];
+  const td = document.getElementById(`hist-amount-${histIdx}`);
+  if (!td) return;
+  td.innerHTML = `
+    <input type="number" id="hist-edit-input-${histIdx}" value="${h.amount}" inputmode="numeric"
+      style="width:80px;padding:2px 4px;border:1px solid #4f7cff;border-radius:4px;font-size:13px;">
+    <button onclick="saveEditHistory('${itemId}',${histIdx})" style="font-size:11px;padding:2px 7px;background:#2ecc71;color:#fff;border:none;border-radius:4px;cursor:pointer;margin-left:3px;">保存</button>`;
+}
+
+/** 履歴の編集を確定する */
+function saveEditHistory(itemId, histIdx) {
+  const item = appState.items.find(i => i.id === itemId);
+  if (!item) return;
+  const newVal = parseInt(document.getElementById(`hist-edit-input-${histIdx}`).value);
+  if (isNaN(newVal)) { showSnackbar('正しい金額を入力してください'); return; }
+  const diff = newVal - item.history[histIdx].amount;
+  item.history[histIdx].amount = newVal;
+  item.current = Math.max(0, item.current + diff);
+  saveState();
+  renderItems();
+  renderDashboard();
+  openDetailModal(itemId);
+  showSnackbar('履歴を更新しました ✅');
+}
+
+/** 履歴エントリを削除してcurrentを復元 */
+function deleteHistoryEntry(itemId, histIdx) {
+  const item = appState.items.find(i => i.id === itemId);
+  if (!item) return;
+  const entry = item.history[histIdx];
+  item.current = Math.max(0, item.current - entry.amount);
+  item.history.splice(histIdx, 1);
+  saveState();
+  renderItems();
+  renderDashboard();
+  openDetailModal(itemId);
+  showSnackbar('履歴を削除しました');
 }
 
 /** 今月の積立額を追加 */
