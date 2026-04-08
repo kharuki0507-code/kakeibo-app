@@ -1,5 +1,5 @@
 /**
- * 家計積立管理z-index:2;アプリ - メインJavaScript
+ * 家計積立管理アプリ - メインJavaScript
  * =====================================================
  * 機能一覧:
  *  - 月収入の入力・保存
@@ -730,7 +730,7 @@ function renderRewards() {
     const div = document.createElement('div');
     div.className = `reward-card ${reward.unlocked ? 'unlocked' : 'locked'}`;
     div.innerHTML = `
-eight:1;">🗑️</button>
+eight:1;;z-index:2">🗑️</button>
       <div class="reward-lock">${reward.unlocked ? '✅' : '🔒'}</div>
       <button onclick="deleteReward('${reward.id}')" title="削除"
         style="position:absolute;top:6px;right:6px;background:none;border:none;font-size:14px;cursor:pointer;opacity:0.55;padding:2px;line-h      <div class="reward-icon">${reward.icon}</div>
